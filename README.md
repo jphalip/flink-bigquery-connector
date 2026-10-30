@@ -136,11 +136,34 @@ For details, check [pom file](https://github.com/GoogleCloudDataproc/flink-bigqu
 ###### Original Jar
 
 Use `flink-1.17-connector-bigquery-1.1.0.jar` for connector library jar as created by maven's default packaging.
+Starting with the release following 1.1.0, this jar only contains the Flink version specific classes, and depends on
+the `flink-connector-bigquery-core` and `flink-connector-bigquery-common` artifacts (pulled in automatically when the
+connector is used as a Maven dependency). When adding jars to a classpath manually, prefer the shaded jar.
 
 ###### Shaded Jar
 
 Use `flink-1.17-connector-bigquery-1.1.0-shaded.jar` for connector library jar bundled with relevant dependencies,
 where google and apache dependencies are shaded. This jar is created using maven-shade-plugin. 
+
+If you re-shade the connector into your own application jar, keep the `META-INF/services` files intact (e.g. with
+maven-shade-plugin's `ServicesResourceTransformer`): the connector discovers its Flink version specific implementation
+through `META-INF/services/com.google.cloud.flink.bigquery.compat.FlinkCompat`.
+
+### Code Layout
+
+The connector's implementation lives in the Flink version independent `flink-connector-bigquery-core` module,
+compiled against the oldest supported Flink version. Each `flink-<version>-connector-bigquery` module only contains
+the classes that depend on that Flink version's APIs, and runs the core module's test suite against its own Flink
+version. Some features depend on APIs that only exist in newer Flink versions:
+
+| Feature                                          | Flink 1.17 | Flink 2.1 |
+|--------------------------------------------------|------------|-----------|
+| Storage Write API sink (at-least/exactly-once)   | ✓          | ✓         |
+| CDC (upserts/deletes), incl. table auto-creation | ✓          | ✓         |
+| Indirect sink (`write.mode` = `INDIRECT`)        |            | ✓         |
+| Source parallelism (`scan.parallelism`)          |            | ✓         |
+| Filter push down on nested fields                |            | ✓         |
+| Data lineage (FLIP-314)                          |            | ✓         |
 
 ### Connector to Flink Compatibility
 
@@ -338,22 +361,22 @@ Check out BigQuery SQL's [DDL](https://cloud.google.com/bigquery/docs/reference/
   [sink level parallelism](https://nightlies.apache.org/flink/flink-docs-release-1.17/docs/dev/datastream/execution/parallel/#operator-level)
   explicitly, or ensure that default job level parallelism is under region-specific maximums (512 or 128).
 * When using a BigQuery sink, checkpoint timeout should be liberal. This is because sink writers are
-  [throttled](https://github.com/GoogleCloudDataproc/flink-bigquery-connector/blob/main/flink-1.17-connector-bigquery/flink-connector-bigquery/src/main/java/com/google/cloud/flink/bigquery/sink/throttle/BigQueryWriterThrottler.java) 
+  [throttled](https://github.com/GoogleCloudDataproc/flink-bigquery-connector/blob/main/flink-connector-bigquery-core/src/main/java/com/google/cloud/flink/bigquery/sink/throttle/BigQueryWriterThrottler.java) 
   before they start sending data to BigQuery. Depending on the destination dataset's region, an estimate of this throttling is 3 minutes for US and EU multi-regions, and 45 seconds for others. 
   Throttling is necessary to gracefully handle BigQuery's rate limiting on certain APIs used by the sink writers. Note that this throttling happens once per writer, before the first checkpoint they encounter after   accepting data.
 * Delivery guarantee can be [at-least-once](https://nightlies.apache.org/flink/flink-docs-release-1.17/api/java/org/apache/flink/connector/base/DeliveryGuarantee.html#AT_LEAST_ONCE) or 
   [exactly-once](https://nightlies.apache.org/flink/flink-docs-release-1.17/api/java/org/apache/flink/connector/base/DeliveryGuarantee.html#EXACTLY_ONCE).
 * The at-least-once sink enables BigQuery client [multiplexing](https://cloud.google.com/bigquery/docs/write-api-streaming#use_multiplexing)
   by default, which optimizes usage of BigQuery write APIs. This is not possible in exactly-once sink.
-* [AvroToProtoSerializer](https://github.com/GoogleCloudDataproc/flink-bigquery-connector/blob/main/flink-1.17-connector-bigquery/flink-connector-bigquery/src/main/java/com/google/cloud/flink/bigquery/sink/serializer/AvroToProtoSerializer.java)
+* [AvroToProtoSerializer](https://github.com/GoogleCloudDataproc/flink-bigquery-connector/blob/main/flink-connector-bigquery-core/src/main/java/com/google/cloud/flink/bigquery/sink/serializer/AvroToProtoSerializer.java)
   is the only out-of-the-box serializer offered for Datastream API. It expects data to arrive at the sink as avro's GenericRecord.
   Users can create their own implementation of
-  [BigQueryProtoSerializer](https://github.com/GoogleCloudDataproc/flink-bigquery-connector/blob/main/flink-1.17-connector-bigquery/flink-connector-bigquery/src/main/java/com/google/cloud/flink/bigquery/sink/serializer/BigQueryProtoSerializer.java)
+  [BigQueryProtoSerializer](https://github.com/GoogleCloudDataproc/flink-bigquery-connector/blob/main/flink-connector-bigquery-core/src/main/java/com/google/cloud/flink/bigquery/sink/serializer/BigQueryProtoSerializer.java)
   for other data formats.
 * Flink cannot automatically serialize avro's GenericRecord, hence users must explicitly specify type information
   when maintaining records in avro format. Check Flink's [blog on non-trivial serialization](https://nightlies.apache.org/flink/flink-docs-release-1.17/api/java/org/apache/flink/connector/base/DeliveryGuarantee.html#AT_LEAST_ONCE).
   Note that avro schema of an existing BigQuery table can be obtained from
-  [BigQuerySchemaProviderImpl](https://github.com/GoogleCloudDataproc/flink-bigquery-connector/blob/main/flink-1.17-connector-bigquery/flink-connector-bigquery/src/main/java/com/google/cloud/flink/bigquery/sink/serializer/BigQuerySchemaProviderImpl.java).
+  [BigQuerySchemaProviderImpl](https://github.com/GoogleCloudDataproc/flink-bigquery-connector/blob/main/flink-connector-bigquery-core/src/main/java/com/google/cloud/flink/bigquery/sink/serializer/BigQuerySchemaProviderImpl.java).
 * BigQuerySinkConfig requires the StreamExecutionEnvironment if delivery guarantee is exactly-once.   
   **Restart strategy must be explicitly set in the StreamExecutionEnvironment**.  
   This is to [validate](https://github.com/GoogleCloudDataproc/flink-bigquery-connector/blob/92db3690c741fb2cdb99e28c575e19affb5c8b69/flink-1.17-connector-bigquery/flink-connector-bigquery/src/main/java/com/google/cloud/flink/bigquery/sink/BigQuerySinkConfig.java#L185) 

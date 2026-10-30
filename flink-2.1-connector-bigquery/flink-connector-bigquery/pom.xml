@@ -45,12 +45,29 @@ under the License.
     </licenses>
 
     <dependencies>
+        <!-- Flink version independent connector implementation. -->
+        <dependency>
+            <groupId>com.google.cloud.flink</groupId>
+            <artifactId>flink-connector-bigquery-core</artifactId>
+            <version>${revision}</version>
+        </dependency>
 
+        <!-- The core module's tests, executed by this module against its Flink version. -->
+        <dependency>
+            <groupId>com.google.cloud.flink</groupId>
+            <artifactId>flink-connector-bigquery-core</artifactId>
+            <version>${revision}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Also brought by the core module. They are declared here as well because, as direct
+             dependencies, they drive Maven's version mediation for their transitive dependencies
+             (e.g. Avro's commons-compress), which keeps the packaged dependencies unchanged. -->
         <dependency>
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
         </dependency>
-
         <dependency>
             <groupId>com.google.http-client</groupId>
             <artifactId>google-http-client</artifactId>
@@ -58,6 +75,10 @@ under the License.
         <dependency>
             <groupId>joda-time</groupId>
             <artifactId>joda-time</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.avro</groupId>
+            <artifactId>avro</artifactId>
         </dependency>
 
         <dependency>
@@ -74,10 +95,6 @@ under the License.
         </dependency>
 
         <!-- Flink Dependencies -->
-        <dependency>
-            <groupId>org.apache.avro</groupId>
-            <artifactId>avro</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-shaded-force-shading</artifactId>
@@ -225,10 +242,30 @@ under the License.
                             <goal>shade</goal>
                         </goals>
                         <configuration>
+                            <filters combine.children="append">
+                                <!-- Keep all core classes: some are only loaded via
+                                     ServiceLoader, which minimizeJar cannot detect. -->
+                                <filter>
+                                    <artifact>com.google.cloud.flink:flink-connector-bigquery-core</artifact>
+                                    <includes>
+                                        <include>**</include>
+                                    </includes>
+                                </filter>
+                            </filters>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Run the core module's tests against this module's Flink version. -->
+                    <dependenciesToScan>
+                        <dependency>com.google.cloud.flink:flink-connector-bigquery-core:test-jar:tests</dependency>
+                    </dependenciesToScan>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

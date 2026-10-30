@@ -16,11 +16,15 @@
 
 package com.google.cloud.flink.bigquery.sink;
 
+import org.apache.flink.annotation.Internal;
+import org.apache.flink.api.connector.sink2.Sink;
 import org.apache.flink.api.connector.sink2.SinkWriter;
 import org.apache.flink.api.connector.sink2.WriterInitContext;
 import org.apache.flink.core.execution.CheckpointingMode;
+import org.apache.flink.streaming.api.lineage.LineageVertex;
+import org.apache.flink.streaming.api.lineage.LineageVertexProvider;
 
-import com.google.cloud.flink.bigquery.services.BigQueryServicesImpl;
+import com.google.cloud.flink.bigquery.lineage.BigQueryLineageUtil;
 import com.google.cloud.flink.bigquery.sink.writer.BigQueryDefaultWriter;
 
 /**
@@ -33,28 +37,30 @@ import com.google.cloud.flink.bigquery.sink.writer.BigQueryDefaultWriter;
  *
  * @param <IN> Type of input to sink.
  */
-class BigQueryDefaultSink<IN> extends BigQueryBaseSink<IN> {
+@Internal
+public class BigQueryDefaultSink<IN> extends BigQueryDefaultSinkBase<IN>
+        implements Sink<IN>, LineageVertexProvider {
 
-    BigQueryDefaultSink(BigQuerySinkConfig<IN> sinkConfig) {
+    public BigQueryDefaultSink(BigQuerySinkConfig<IN> sinkConfig) {
         super(sinkConfig);
-        traceId = BigQueryServicesImpl.generateTraceId("default");
     }
 
     @Override
-    public SinkWriter createWriter(WriterInitContext context) {
-        checkParallelism(context.getTaskInfo().getNumberOfParallelSubtasks());
-        return new BigQueryDefaultWriter<>(
-                tablePath,
-                connectOptions,
-                schemaProvider,
-                serializer,
-                createTableOptions(),
-                fatalizeSerializer,
-                maxParallelism,
-                traceId,
-                cdcEnabled,
-                cdcSequenceField,
-                cdcChangeTypeProvider,
-                context);
+    public SinkWriter<IN> createWriter(WriterInitContext context) {
+        return createDefaultWriter(
+                context.getTaskInfo().getIndexOfThisSubtask(),
+                context.getTaskInfo().getNumberOfParallelSubtasks(),
+                context.metricGroup());
+    }
+
+    /**
+     * Exposes this sink's BigQuery table as FLIP-314 lineage metadata, with the {@code (namespace,
+     * name)} pair {@code ("bigquery", "project.dataset.table")} a downstream {@link
+     * org.apache.flink.core.execution.JobStatusChangedListener} can consume. See {@link
+     * BigQueryLineageUtil} for details.
+     */
+    @Override
+    public LineageVertex getLineageVertex() {
+        return BigQueryLineageUtil.sinkVertexOf(connectOptions);
     }
 }

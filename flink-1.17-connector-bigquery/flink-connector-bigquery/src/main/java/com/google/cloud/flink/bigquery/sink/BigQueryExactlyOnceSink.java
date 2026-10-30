@@ -16,20 +16,15 @@
 
 package com.google.cloud.flink.bigquery.sink;
 
+import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.connector.sink2.Committer;
-import org.apache.flink.core.io.SimpleVersionedSerializer;
 
-import com.google.cloud.flink.bigquery.services.BigQueryServicesImpl;
 import com.google.cloud.flink.bigquery.sink.committer.BigQueryCommittable;
-import com.google.cloud.flink.bigquery.sink.committer.BigQueryCommittableSerializer;
-import com.google.cloud.flink.bigquery.sink.committer.BigQueryCommitter;
 import com.google.cloud.flink.bigquery.sink.writer.BigQueryBufferedWriter;
 import com.google.cloud.flink.bigquery.sink.writer.BigQueryWriterState;
-import com.google.cloud.flink.bigquery.sink.writer.BigQueryWriterStateSerializer;
+import com.google.cloud.flink.bigquery.sink.writer.PrecommittingBufferedWriter;
 
 import java.util.Collection;
-import java.util.Comparator;
-import java.util.UUID;
 
 /**
  * Sink to write data into a BigQuery table using {@link BigQueryBufferedWriter}.
@@ -41,70 +36,37 @@ import java.util.UUID;
  *
  * @param <IN> Type of input to sink.
  */
-public class BigQueryExactlyOnceSink<IN> extends BigQueryBaseSink<IN>
+public class BigQueryExactlyOnceSink<IN> extends BigQueryExactlyOnceSinkBase<IN>
         implements TwoPhaseCommittingStatefulSink<IN, BigQueryWriterState, BigQueryCommittable> {
 
-    BigQueryExactlyOnceSink(BigQuerySinkConfig<IN> sinkConfig) {
+    @Internal
+    public BigQueryExactlyOnceSink(BigQuerySinkConfig<IN> sinkConfig) {
         super(sinkConfig);
-        traceId = BigQueryServicesImpl.generateTraceId(UUID.randomUUID().toString());
     }
 
     @Override
     public PrecommittingStatefulSinkWriter<IN, BigQueryWriterState, BigQueryCommittable>
             createWriter(InitContext context) {
-        checkParallelism(context.getNumberOfParallelSubtasks());
-        return new BigQueryBufferedWriter<>(
-                tablePath,
-                connectOptions,
-                schemaProvider,
-                serializer,
-                createTableOptions(),
-                fatalizeSerializer,
-                maxParallelism,
-                traceId,
-                context);
+        return new PrecommittingBufferedWriter<>(
+                createBufferedWriter(
+                        context.getSubtaskId(),
+                        context.getNumberOfParallelSubtasks(),
+                        context.metricGroup()));
     }
 
     @Override
     public PrecommittingStatefulSinkWriter<IN, BigQueryWriterState, BigQueryCommittable>
             restoreWriter(InitContext context, Collection<BigQueryWriterState> recoveredState) {
-        if (recoveredState == null || recoveredState.isEmpty()) {
-            return createWriter(context);
-        }
-        // If multiple states are found, restore one with the latest checkpoint.
-        BigQueryWriterState stateToRestore =
-                recoveredState.stream()
-                        .max(Comparator.comparingLong(state -> state.getCheckpointId()))
-                        .get();
-        return new BigQueryBufferedWriter<>(
-                stateToRestore.getStreamName(),
-                stateToRestore.getStreamOffset(),
-                tablePath,
-                stateToRestore.getTotalRecordsSeen(),
-                stateToRestore.getTotalRecordsWritten(),
-                stateToRestore.getTotalRecordsCommitted(),
-                connectOptions,
-                schemaProvider,
-                serializer,
-                createTableOptions(),
-                fatalizeSerializer,
-                maxParallelism,
-                traceId,
-                context);
+        return new PrecommittingBufferedWriter<>(
+                restoreBufferedWriter(
+                        context.getSubtaskId(),
+                        context.getNumberOfParallelSubtasks(),
+                        context.metricGroup(),
+                        recoveredState));
     }
 
     @Override
     public Committer<BigQueryCommittable> createCommitter() {
-        return new BigQueryCommitter(connectOptions);
-    }
-
-    @Override
-    public SimpleVersionedSerializer<BigQueryCommittable> getCommittableSerializer() {
-        return new BigQueryCommittableSerializer();
-    }
-
-    @Override
-    public SimpleVersionedSerializer<BigQueryWriterState> getWriterStateSerializer() {
-        return new BigQueryWriterStateSerializer();
+        return createBigQueryCommitter();
     }
 }

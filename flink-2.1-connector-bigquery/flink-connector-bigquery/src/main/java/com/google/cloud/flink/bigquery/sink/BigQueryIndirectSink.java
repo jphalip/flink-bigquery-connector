@@ -74,7 +74,7 @@ import java.util.UUID;
  * Flink cluster's {@code plugins/} directory.
  */
 @Internal
-final class BigQueryIndirectSink<IN>
+public final class BigQueryIndirectSink<IN>
         implements Sink<IN>,
                 SupportsWriterState<IN, FileWriterBucketState>,
                 SupportsCommitter<FileSinkCommittable>,
@@ -91,7 +91,7 @@ final class BigQueryIndirectSink<IN>
     private final FormatOptions formatOptions;
     private final FileSink<IN> fileSink;
 
-    BigQueryIndirectSink(final BigQuerySinkConfig<IN> config) {
+    public BigQueryIndirectSink(final BigQuerySinkConfig<IN> config) {
         this(config, UUID.randomUUID());
     }
 

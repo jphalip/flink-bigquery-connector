@@ -16,9 +16,10 @@
 
 package com.google.cloud.flink.bigquery.sink;
 
+import org.apache.flink.annotation.Internal;
+import org.apache.flink.api.connector.sink2.Sink;
 import org.apache.flink.api.connector.sink2.SinkWriter;
 
-import com.google.cloud.flink.bigquery.services.BigQueryServicesImpl;
 import com.google.cloud.flink.bigquery.sink.writer.BigQueryDefaultWriter;
 
 /**
@@ -31,28 +32,18 @@ import com.google.cloud.flink.bigquery.sink.writer.BigQueryDefaultWriter;
  *
  * @param <IN> Type of input to sink.
  */
-class BigQueryDefaultSink<IN> extends BigQueryBaseSink<IN> {
+@Internal
+public class BigQueryDefaultSink<IN> extends BigQueryDefaultSinkBase<IN> implements Sink<IN> {
 
-    BigQueryDefaultSink(BigQuerySinkConfig<IN> sinkConfig) {
+    public BigQueryDefaultSink(BigQuerySinkConfig<IN> sinkConfig) {
         super(sinkConfig);
-        traceId = BigQueryServicesImpl.generateTraceId("default");
     }
 
     @Override
-    public SinkWriter createWriter(InitContext context) {
-        checkParallelism(context.getNumberOfParallelSubtasks());
-        return new BigQueryDefaultWriter<>(
-                tablePath,
-                connectOptions,
-                schemaProvider,
-                serializer,
-                createTableOptions(),
-                fatalizeSerializer,
-                maxParallelism,
-                traceId,
-                cdcEnabled,
-                cdcSequenceField,
-                cdcChangeTypeProvider,
-                context);
+    public SinkWriter<IN> createWriter(InitContext context) {
+        return createDefaultWriter(
+                context.getSubtaskId(),
+                context.getNumberOfParallelSubtasks(),
+                context.metricGroup());
     }
 }

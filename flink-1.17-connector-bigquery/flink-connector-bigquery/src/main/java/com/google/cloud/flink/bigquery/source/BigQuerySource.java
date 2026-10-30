@@ -17,41 +17,13 @@
 package com.google.cloud.flink.bigquery.source;
 
 import org.apache.flink.annotation.PublicEvolving;
-import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.connector.source.Boundedness;
 import org.apache.flink.api.connector.source.Source;
-import org.apache.flink.api.connector.source.SourceReader;
-import org.apache.flink.api.connector.source.SourceReaderContext;
-import org.apache.flink.api.connector.source.SplitEnumerator;
-import org.apache.flink.api.connector.source.SplitEnumeratorContext;
-import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
-import org.apache.flink.connector.base.source.reader.RecordsWithSplitIds;
-import org.apache.flink.connector.base.source.reader.splitreader.SplitReader;
-import org.apache.flink.connector.base.source.reader.synchronization.FutureCompletingBlockingQueue;
-import org.apache.flink.core.io.SimpleVersionedSerializer;
 
-import com.google.api.services.bigquery.model.TableSchema;
 import com.google.auto.value.AutoValue;
-import com.google.cloud.flink.bigquery.common.config.BigQueryConnectOptions;
-import com.google.cloud.flink.bigquery.common.utils.SchemaTransform;
-import com.google.cloud.flink.bigquery.services.BigQueryServicesFactory;
 import com.google.cloud.flink.bigquery.source.config.BigQueryReadOptions;
-import com.google.cloud.flink.bigquery.source.emitter.BigQueryRecordEmitter;
-import com.google.cloud.flink.bigquery.source.enumerator.BigQuerySourceEnumState;
-import com.google.cloud.flink.bigquery.source.enumerator.BigQuerySourceEnumStateSerializer;
-import com.google.cloud.flink.bigquery.source.enumerator.BigQuerySourceEnumerator;
-import com.google.cloud.flink.bigquery.source.reader.BigQuerySourceReader;
-import com.google.cloud.flink.bigquery.source.reader.BigQuerySourceReaderContext;
-import com.google.cloud.flink.bigquery.source.reader.deserializer.AvroDeserializationSchema;
 import com.google.cloud.flink.bigquery.source.reader.deserializer.BigQueryDeserializationSchema;
-import com.google.cloud.flink.bigquery.source.split.BigQuerySourceSplit;
-import com.google.cloud.flink.bigquery.source.split.BigQuerySourceSplitSerializer;
-import com.google.cloud.flink.bigquery.source.split.reader.BigQuerySourceSplitReader;
 import org.apache.avro.generic.GenericRecord;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.function.Supplier;
 
 /**
  * The DataStream {@link Source} implementation for Google BigQuery. It reads data directly from a
@@ -79,76 +51,7 @@ import java.util.function.Supplier;
  */
 @AutoValue
 @PublicEvolving
-public abstract class BigQuerySource<OUT>
-        implements Source<OUT, BigQuerySourceSplit, BigQuerySourceEnumState>,
-                ResultTypeQueryable<OUT> {
-    private static final Logger LOG = LoggerFactory.getLogger(BigQuerySource.class);
-
-    public abstract BigQueryDeserializationSchema<GenericRecord, OUT> getDeserializationSchema();
-
-    public abstract BigQueryReadOptions getReadOptions();
-
-    public abstract Boundedness getSourceBoundedness();
-
-    @Override
-    public Boundedness getBoundedness() {
-        return getSourceBoundedness();
-    }
-
-    @Override
-    public SimpleVersionedSerializer<BigQuerySourceSplit> getSplitSerializer() {
-        return BigQuerySourceSplitSerializer.INSTANCE;
-    }
-
-    @Override
-    public SimpleVersionedSerializer<BigQuerySourceEnumState> getEnumeratorCheckpointSerializer() {
-        return BigQuerySourceEnumStateSerializer.INSTANCE;
-    }
-
-    @Override
-    public TypeInformation<OUT> getProducedType() {
-        return getDeserializationSchema().getProducedType();
-    }
-
-    @Override
-    public SourceReader<OUT, BigQuerySourceSplit> createReader(SourceReaderContext readerContext)
-            throws Exception {
-        FutureCompletingBlockingQueue<RecordsWithSplitIds<GenericRecord>> elementsQueue =
-                new FutureCompletingBlockingQueue<>();
-
-        BigQuerySourceReaderContext bqReaderContext =
-                new BigQuerySourceReaderContext(
-                        readerContext, getReadOptions().getLimit().orElse(-1));
-
-        Supplier<SplitReader<GenericRecord, BigQuerySourceSplit>> splitReaderSupplier =
-                () -> new BigQuerySourceSplitReader(getReadOptions(), bqReaderContext);
-
-        return new BigQuerySourceReader<>(
-                elementsQueue,
-                splitReaderSupplier,
-                new BigQueryRecordEmitter<>(getDeserializationSchema()),
-                bqReaderContext);
-    }
-
-    @Override
-    public SplitEnumerator<BigQuerySourceSplit, BigQuerySourceEnumState> createEnumerator(
-            SplitEnumeratorContext<BigQuerySourceSplit> enumContext) throws Exception {
-        return new BigQuerySourceEnumerator(
-                getBoundedness(),
-                enumContext,
-                getReadOptions(),
-                BigQuerySourceEnumState.initialState());
-    }
-
-    @Override
-    public SplitEnumerator<BigQuerySourceSplit, BigQuerySourceEnumState> restoreEnumerator(
-            SplitEnumeratorContext<BigQuerySourceSplit> enumContext,
-            BigQuerySourceEnumState checkpoint)
-            throws Exception {
-        LOG.debug("Restoring enumerator with state {}", checkpoint);
-        return new BigQuerySourceEnumerator(
-                getBoundedness(), enumContext, getReadOptions(), checkpoint);
-    }
+public abstract class BigQuerySource<OUT> extends BigQuerySourceBase<OUT> {
 
     /**
      * Transforms the instance into a builder instance for property modification.
@@ -178,57 +81,10 @@ public abstract class BigQuerySource<OUT>
      *     the underlying table.
      */
     public static BigQuerySource<GenericRecord> readAvros(BigQueryReadOptions readOptions) {
-        BigQueryConnectOptions connectOptions = readOptions.getBigQueryConnectOptions();
-        TableSchema tableSchema =
-                BigQueryServicesFactory.instance(connectOptions)
-                        .queryClient()
-                        .getTableSchema(
-                                connectOptions.getProjectId(),
-                                connectOptions.getDataset(),
-                                connectOptions.getTable());
         return BigQuerySource.<GenericRecord>builder()
-                .setDeserializationSchema(
-                        new AvroDeserializationSchema(
-                                SchemaTransform.toGenericAvroSchema(
-                                                String.format(
-                                                        "%s.%s.%s",
-                                                        sanitizeAvroSchemaName(
-                                                                connectOptions.getProjectId()),
-                                                        sanitizeAvroSchemaName(
-                                                                connectOptions.getDataset()),
-                                                        sanitizeAvroSchemaName(
-                                                                connectOptions.getTable())),
-                                                tableSchema.getFields())
-                                        .toString()))
+                .setDeserializationSchema(createAvroDeserializationSchema(readOptions))
                 .setReadOptions(readOptions)
                 .build();
-    }
-
-    /** Replaces invalid characters with underscore. */
-    private static String sanitizeAvroSchemaName(String name) {
-        if (name == null) {
-            return name;
-        }
-        int length = name.length();
-        if (length == 0) {
-            return name;
-        }
-        String newName = "";
-        char first = name.charAt(0);
-        if (Character.isLetter(first) || first == '_') {
-            newName += first;
-        } else {
-            newName += '_';
-        }
-        for (int i = 1; i < length; i++) {
-            char c = name.charAt(i);
-            if (Character.isLetterOrDigit(c) || c == '_') {
-                newName += c;
-            } else {
-                newName += '_';
-            }
-        }
-        return newName;
     }
 
     /**

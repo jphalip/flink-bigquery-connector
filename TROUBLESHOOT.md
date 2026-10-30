@@ -117,7 +117,7 @@ Ensure proper auth permissions, correct credentials,
 and internet connectivity to prevent this error.
 
 - `Could not obtain Descriptor from Descriptor Proto` - 
-Thrown by the [BigQuerySchemaProvider](flink-1.17-connector-bigquery/flink-connector-bigquery/src/main/java/com/google/cloud/flink/bigquery/sink/serializer/BigQuerySchemaProviderImpl.java) 
+Thrown by the [BigQuerySchemaProvider](flink-connector-bigquery-core/src/main/java/com/google/cloud/flink/bigquery/sink/serializer/BigQuerySchemaProviderImpl.java) 
 when unable to convert the Descriptor Proto to Descriptor. 
 This error might arise when building descriptors fails because the source DescriptorProto is not a
 valid Descriptor. 

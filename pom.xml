@@ -75,6 +75,8 @@ under the License.
 
     <properties>
         <revision>1.2-SNAPSHOT</revision>
+        <!-- Oldest supported Flink version. The common and core modules are compiled against it;
+             each version specific module overrides it with its own Flink version. -->
         <flink.version>1.17.1</flink.version>
         <bigquery.guava.version>33.4.8-jre</bigquery.guava.version>
         <google-lib-bom.version>26.33.0</google-lib-bom.version>
@@ -96,6 +98,7 @@ under the License.
 
     <modules>
         <module>flink-connector-bigquery-common</module>
+        <module>flink-connector-bigquery-core</module>
     </modules>
 
     <dependencies>
